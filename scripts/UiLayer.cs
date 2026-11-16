@@ -533,6 +533,16 @@ public partial class UiLayer : CanvasLayer
         _exitBtn = BarButton("退出游戏", 34, 160, 760, 400, 96);
         Wire(_exitBtn, () => GetTree().Quit());
         _menu.AddChild(_exitBtn);
+
+        // 底部版本号
+        var version = TextLabel("v0.1.0", 16, new Color(0.52f, 0.44f, 0.32f, 0.75f));
+        version.AnchorRight = 1;
+        version.AnchorTop = 1;
+        version.AnchorBottom = 1;
+        version.OffsetTop = -36;
+        version.OffsetBottom = -10;
+        version.HorizontalAlignment = HorizontalAlignment.Center;
+        _menu.AddChild(version);
     }
 
     /// <summary>让控件绕基准位置上下浮动（不同时长自然错开相位）。</summary>

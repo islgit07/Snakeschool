@@ -46,6 +46,11 @@ public partial class UiLayer : CanvasLayer
     private ShaderMaterial _dangerMat;
     private float _fxTime;
 
+    private Panel _achToast;
+    private Label _achName;
+    private readonly Queue<string> _achQueue = new();
+    private bool _achBusy;
+
     public override void _Ready()
     {
         _root = new Control { MouseFilter = Control.MouseFilterEnum.Ignore };
@@ -58,8 +63,77 @@ public partial class UiLayer : CanvasLayer
         BuildPause();
         BuildOver();
         BuildDangerFx();
+        BuildAchievements();
 
         SelectDiff(_selDiff);
+    }
+
+    /// <summary>成就弹出条（灵动岛式：从屏幕顶部滑入）。</summary>
+    private void BuildAchievements()
+    {
+        _achToast = new Panel { MouseFilter = Control.MouseFilterEnum.Ignore, Visible = false };
+        _achToast.Size = new Vector2(560, 92);
+        var sb = new StyleBoxFlat { BgColor = new Color(0.11f, 0.09f, 0.07f, 0.94f) };
+        sb.SetCornerRadiusAll(46);
+        sb.BorderColor = Palette.Gold;
+        sb.SetBorderWidthAll(2);
+        sb.ShadowColor = new Color(0, 0, 0, 0.4f);
+        sb.ShadowSize = 6;
+        sb.ShadowOffset = new Vector2(0, 4);
+        _achToast.AddThemeStyleboxOverride("panel", sb);
+        _root.AddChild(_achToast); // 在警报暗角之上
+
+        var medal = CircleStyle(60, new Color("8a6d1f"));
+        medal.SetCornerRadiusAll(30);
+        var medalPanel = new Panel { MouseFilter = Control.MouseFilterEnum.Ignore };
+        medalPanel.Position = new Vector2(18, 16);
+        medalPanel.Size = new Vector2(60, 60);
+        medalPanel.AddThemeStyleboxOverride("panel", medal);
+        _achToast.AddChild(medalPanel);
+        medalPanel.AddChild(Sprite(UiKit.Star, 10, 10, 40));
+
+        var caption = TextLabel("成就解锁", 18, Palette.Gold);
+        caption.Position = new Vector2(96, 16);
+        caption.Size = new Vector2(440, 26);
+        _achToast.AddChild(caption);
+
+        _achName = TextLabel("", 30, Palette.Text);
+        _achName.Position = new Vector2(96, 44);
+        _achName.Size = new Vector2(440, 40);
+        _achToast.AddChild(_achName);
+    }
+
+    /// <summary>成就解锁请求：入队后依次以灵动岛方式弹出。</summary>
+    public void QueueAchievement(string id)
+    {
+        _achQueue.Enqueue(id);
+        ShowNextAchievement();
+    }
+
+    private async void ShowNextAchievement()
+    {
+        if (_achBusy || _achQueue.Count == 0) return;
+        _achBusy = true;
+        _achName.Text = Achievements.NameOf(_achQueue.Dequeue());
+
+        _achToast.Position = new Vector2(80, -110);
+        _achToast.Visible = true;
+        AudioManager.Instance?.PlayMinor(AudioBank.Win, 1.35f);
+
+        var tIn = CreateTween();
+        tIn.TweenProperty(_achToast, "position:y", 14f, 0.5f)
+            .SetTrans(Tween.TransitionType.Back).SetEase(Tween.EaseType.Out);
+        await ToSignal(tIn, Tween.SignalName.Finished);
+        await ToSignal(GetTree().CreateTimer(2.3), "timeout");
+
+        var tOut = CreateTween();
+        tOut.TweenProperty(_achToast, "position:y", -110f, 0.4f)
+            .SetEase(Tween.EaseType.In).SetTrans(Tween.TransitionType.Sine);
+        await ToSignal(tOut, Tween.SignalName.Finished);
+        _achToast.Visible = false;
+
+        _achBusy = false;
+        ShowNextAchievement();
     }
 
     /// <summary>肥胖警报红色暗角（全屏最顶层，鼠标穿透）。</summary>

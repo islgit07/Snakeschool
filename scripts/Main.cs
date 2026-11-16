@@ -41,6 +41,19 @@ public partial class Main : Node2D
     /// <summary>游戏时间倍率：右上角按钮切换 1x / 2x。</summary>
     public float SpeedScale { get; private set; } = 1f;
 
+    // —— 成就计时 ——
+    private float _lastEatOrSpit; // 上次吃/吐的时刻，60 秒无动静 → 矜持
+    private float _fastTime;      // 二倍速连续时长
+
+    // —— 科乐美秘技：上上下下左右左右（记录所有转向尝试，含被拒绝的反向）——
+    private static readonly Vector2I[] KonamiCode =
+    {
+        Vector2I.Up, Vector2I.Up, Vector2I.Down, Vector2I.Down,
+        Vector2I.Left, Vector2I.Right, Vector2I.Left, Vector2I.Right,
+    };
+    private readonly List<Vector2I> _konami = new();
+    private Vector2I _lastKeyDir;
+
     /// <summary>
     /// 肥胖警报强度：体重达到开局 2 倍起警，2.5 倍满格（用于晃动/红暗角/心跳音）。
     /// </summary>
@@ -113,6 +126,18 @@ public partial class Main : Node2D
             {
                 _heartTimer = 99f;
             }
+
+            // 成就：60 秒不吃不吐 / 二倍速连续存活 30 秒
+            if (_runTime - _lastEatOrSpit >= 60f) UnlockAch("modest");
+            if (SpeedScale > 1f)
+            {
+                _fastTime += dt;
+                if (_fastTime >= 30f) UnlockAch("dragon");
+            }
+            else
+            {
+                _fastTime = 0f;
+            }
         }
         else if (State == GameState.Lost && _deathFade > 0f)
         {
@@ -153,20 +178,52 @@ public partial class Main : Node2D
 
     private void HandleKeyboard()
     {
-        if (Input.IsKeyPressed(Key.W) || Input.IsKeyPressed(Key.Up)) SetDir(Vector2I.Up);
-        else if (Input.IsKeyPressed(Key.S) || Input.IsKeyPressed(Key.Down)) SetDir(Vector2I.Down);
-        else if (Input.IsKeyPressed(Key.A) || Input.IsKeyPressed(Key.Left)) SetDir(Vector2I.Left);
-        else if (Input.IsKeyPressed(Key.D) || Input.IsKeyPressed(Key.Right)) SetDir(Vector2I.Right);
+        // 边沿触发：只有"新按下"的方向才下发 SetDir（长按不重复计秘技序列）
+        Vector2I d = Vector2I.Zero;
+        if (Input.IsKeyPressed(Key.W) || Input.IsKeyPressed(Key.Up)) d = Vector2I.Up;
+        else if (Input.IsKeyPressed(Key.S) || Input.IsKeyPressed(Key.Down)) d = Vector2I.Down;
+        else if (Input.IsKeyPressed(Key.A) || Input.IsKeyPressed(Key.Left)) d = Vector2I.Left;
+        else if (Input.IsKeyPressed(Key.D) || Input.IsKeyPressed(Key.Right)) d = Vector2I.Right;
+
+        if (d != _lastKeyDir)
+        {
+            _lastKeyDir = d;
+            if (d != Vector2I.Zero) SetDir(d);
+        }
 
         if (Input.IsKeyPressed(Key.Space)) TrySpit();
     }
 
+    /// <summary>记录一次转向尝试，滑动窗口匹配科乐美秘技。</summary>
+    private void RecordKonami(Vector2I d)
+    {
+        _konami.Add(d);
+        if (_konami.Count > KonamiCode.Length) _konami.RemoveAt(0);
+        if (_konami.Count != KonamiCode.Length) return;
+        for (int i = 0; i < KonamiCode.Length; i++)
+            if (_konami[i] != KonamiCode[i]) return;
+        _konami.Clear();
+        UnlockAch("konami");
+    }
+
+    /// <summary>解锁成就（去重 + 持久化 + 弹出动画）。</summary>
+    private void UnlockAch(string id)
+    {
+        if (State == GameState.Menu) return;
+        if (Achievements.Unlock(id)) Ui.QueueAchievement(id);
+    }
+
     // ———————————————— 输入动作 ————————————————
 
-    public void SetDir(Vector2I d)
+    public void SetDir(Vector2I d, bool record = true)
     {
         if (State != GameState.Playing) return;
-        if (d == _dir || d == -_dir) return;
+        if (record) RecordKonami(d);
+        if (d == _dir || d == -_dir)
+        {
+            if (d == -_dir) UnlockAch("reverse_clock"); // 反方向的钟：试图原地掉头
+            return;
+        }
         _nextDir = d;
         Audio.PlayMinor(AudioBank.Turn);
     }
@@ -200,6 +257,7 @@ public partial class Main : Node2D
 
         _flyingTargets.Add(land);
         Board.LaunchChunk(head, land);
+        _lastEatOrSpit = _runTime;
         Audio.Play(AudioBank.Spit, (float)GD.RandRange(0.9, 1.1));
         _spitUsedThisStep = true;
         Ui.UpdateHud();
@@ -243,6 +301,10 @@ public partial class Main : Node2D
         _foodEaten = 0;
         _runTime = 0f;
         _deathFade = 0f;
+        _lastEatOrSpit = 0f;
+        _fastTime = 0f;
+        _konami.Clear();
+        _lastKeyDir = Vector2I.Zero;
         DeathCause = DeathCause.None;
 
         for (int i = 0; i < diff.MaxFood; i++) SpawnFood();
@@ -308,12 +370,14 @@ public partial class Main : Node2D
         // 死法二：撞上自己吐出的肥肉障碍
         if (_obstacles.Contains(newHead))
         {
+            UnlockAch("stone_foot"); // 搬起石头砸自己的脚
             Die(DeathCause.Obstacle);
             return;
         }
-        // 死法三：咬到自己
+        // 死法三：咬到自己（咬到最末端 = 衔尾蛇）
         if (_snake.Contains(newHead))
         {
+            if (newHead == _snake[^1]) UnlockAch("ouroboros");
             Die(DeathCause.SelfBite);
             return;
         }
@@ -325,6 +389,7 @@ public partial class Main : Node2D
             _foodEaten++;
             for (int i = 0; i < Diff.FoodFatGain; i++)
                 _snake.Add(_snake[^1]); // 尾部原地复制：变长
+            _lastEatOrSpit = _runTime;
             Audio.Play(AudioBank.Eat, (float)GD.RandRange(0.95, 1.1));
             Board.OnEat(GameConfig.CellCenter(newHead), Diff.FoodFatGain);
             SpawnFood();
@@ -376,6 +441,7 @@ public partial class Main : Node2D
     {
         State = GameState.Won;
         bool newRecord = Audio.ReportWin(_foodEaten, _runTime);
+        if (_runTime <= 30f) UnlockAch("vip"); // 健身房VIP客户：30 秒内减肥成功
         Audio.Play(AudioBank.Win);
         Board.CelebrateWin();
         Ui.ShowOver(true, "", newRecord); // 只显示"减肥成功"，不展示数据
@@ -447,6 +513,23 @@ public partial class Main : Node2D
                 int target = Diff.StartLength * 5;
                 while (_snake.Count < target) _snake.Add(_snake[^1]);
                 Die(DeathCause.Explode);
+            }
+            else if (a == "state=ach")
+            {
+                // 依次弹出全部成就，验证灵动岛动画
+                StartGame(Diff);
+                UnlockAch("modest");
+                UnlockAch("stone_foot");
+                UnlockAch("dragon");
+                UnlockAch("reverse_clock");
+                UnlockAch("ouroboros");
+                UnlockAch("vip");
+            }
+            else if (a == "state=konami")
+            {
+                // 输入一遍秘技序列，验证序列匹配
+                StartGame(Diff);
+                foreach (Vector2I d in KonamiCode) SetDir(d);
             }
             else if (a == "fxtest")
             {

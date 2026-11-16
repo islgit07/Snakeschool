@@ -150,28 +150,28 @@ public partial class GameBoard : Node2D
         AddText(center + new Vector2(0, -14), $"+{fatGain}", Palette.Danger, 26);
     }
 
-    /// <summary>死亡：震屏 + 红闪 + 蛇身爆裂成粒子。</summary>
-    public void OnDeath()
+    /// <summary>死亡：震屏 + 红闪 + 蛇身爆裂成粒子。撑爆（mega）时威力翻倍。</summary>
+    public void OnDeath(bool mega = false)
     {
-        _shake = 14f;
-        _flash = 1f;
+        _shake = mega ? 26f : 14f;
+        _flash = mega ? 1.6f : 1f;
         var snake = Game.Snake;
         for (int i = 0; i < snake.Count; i++)
         {
             Vector2 p = GameConfig.CellCenter(snake[i]);
             Color col = Palette.Green.Lerp(Palette.Pink, (float)i / Mathf.Max(1, snake.Count));
-            for (int j = 0; j < 4; j++)
+            for (int j = 0; j < (mega ? 8 : 4); j++)
             {
                 float ang = (float)GD.RandRange(0.0, Mathf.Pi * 2.0);
-                float spd = (float)GD.RandRange(90.0, 280.0);
-                float life = (float)GD.RandRange(0.5, 0.9);
+                float spd = (float)GD.RandRange(90.0, mega ? 420.0 : 280.0);
+                float life = (float)GD.RandRange(0.5, mega ? 1.2 : 0.9);
                 _parts.Add(new Particle
                 {
                     Pos = p,
                     Vel = new Vector2(Mathf.Cos(ang), Mathf.Sin(ang)) * spd,
                     Life = life,
                     Max = life,
-                    Size = (float)GD.RandRange(5.0, 9.0),
+                    Size = (float)GD.RandRange(5.0, mega ? 13.0 : 9.0),
                     Gravity = 480f,
                     Col = new Color(col.R, col.G, col.B, 0.95f),
                 });

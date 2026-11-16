@@ -2,7 +2,7 @@ using Godot;
 using System.Collections.Generic;
 
 public enum GameState { Menu, Playing, Paused, Won, Lost }
-public enum DeathCause { None, Wall, Obstacle, SelfBite }
+public enum DeathCause { None, Wall, Obstacle, SelfBite, Explode }
 
 /// <summary>
 /// 游戏主控：状态机、回合步进、输入（键盘 + 触摸滑动）、主动催吐规则与结算。
@@ -334,6 +334,13 @@ public partial class Main : Node2D
             _snake.RemoveAt(_snake.Count - 1);
         }
 
+        // 吃到开局 5 倍体重：直接撑爆
+        if (_snake.Count >= Diff.StartLength * 5)
+        {
+            Die(DeathCause.Explode);
+            return;
+        }
+
         _spitUsedThisStep = false; // 每走一步恢复一次催吐机会
         Ui.UpdateHud();
 
@@ -380,16 +387,25 @@ public partial class Main : Node2D
         State = GameState.Lost;
         _deathFade = 1f;
         Audio.Play(AudioBank.Die);
-        Board.OnDeath();
+        if (cause == DeathCause.Explode)
+        {
+            Board.OnDeath(mega: true);
+            Audio.Play(AudioBank.Land, 0.4f, -4f);
+        }
+        else
+        {
+            Board.OnDeath();
+        }
 
         string reason = cause switch
         {
-            DeathCause.Wall => "撞上了围墙。",
+            DeathCause.Wall => "撞上了围墙",
             DeathCause.Obstacle => "被自己吐出的肥肉绊倒了。",
             DeathCause.SelfBite => "咬到了自己的尾巴。",
+            DeathCause.Explode => "你是饕餮吗",
             _ => "",
         };
-        Ui.ShowOver(false, reason, false); // 只显示失败原因，不展示数据
+        Ui.ShowOver(false, reason, false);
     }
 
     // ———————————————— 调试参数（截图验收用） ————————————————
@@ -423,6 +439,14 @@ public partial class Main : Node2D
                 // 模拟胖到两倍以上：验证肥胖警报（摇晃/红暗角/心跳）
                 StartGame(Diff);
                 for (int i = 0; i < 24; i++) _snake.Add(_snake[^1]);
+            }
+            else if (a == "state=explode")
+            {
+                // 模拟吃成 5 倍体重撑爆
+                StartGame(Diff);
+                int target = Diff.StartLength * 5;
+                while (_snake.Count < target) _snake.Add(_snake[^1]);
+                Die(DeathCause.Explode);
             }
             else if (a == "fxtest")
             {

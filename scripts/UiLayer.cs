@@ -32,6 +32,7 @@ public partial class UiLayer : CanvasLayer
     private TextureRect _mascot;
     private Label _title;
     private Button _startBtn, _exitBtn;
+    private Panel _hillBack, _hillFront;
     private Tween _intro;
 
     private Control _pausePanel;
@@ -373,9 +374,11 @@ public partial class UiLayer : CanvasLayer
         haloTw2.TweenProperty(halo, "modulate:a", 1f, 2.2f)
             .SetTrans(Tween.TransitionType.Sine).SetEase(Tween.EaseType.InOut);
 
-        // 底部两道草坡（曲率构图）
-        AddHill(-140, 1010, 1000, 400, 220, new Color("e2d5a4"));
-        AddHill(-80, 1120, 880, 300, 200, new Color("fff1cf"));
+        // 底部两道草坡（曲率构图），缓慢上下浮动
+        _hillBack = AddHill(-140, 1010, 1000, 400, 220, new Color("e2d5a4"));
+        _hillFront = AddHill(-80, 1120, 880, 300, 200, new Color("fff1cf"));
+        FloatLoop(_hillBack, 14f, 2.8f);
+        FloatLoop(_hillFront, 10f, 2.2f);
 
         // 游动线条：几条蛇形波浪在背景里"跑"，呼应贪吃蛇主题
         var trails = new SnakeTrail { MouseFilter = Control.MouseFilterEnum.Ignore };
@@ -448,7 +451,7 @@ public partial class UiLayer : CanvasLayer
             _menu.AddChild(b);
         }
 
-        // 开始 / 退出（统一尺寸与字号，带上下浮动）
+        // 开始 / 退出（统一尺寸与字号）
         _startBtn = BarButton("开始游戏", 34, 160, 640, 400, 96);
         Wire(_startBtn, () => Game.StartWithTransition(GameConfig.Difficulties[_selDiff]));
         _menu.AddChild(_startBtn);
@@ -456,9 +459,6 @@ public partial class UiLayer : CanvasLayer
         _exitBtn = BarButton("退出游戏", 34, 160, 760, 400, 96);
         Wire(_exitBtn, () => GetTree().Quit());
         _menu.AddChild(_exitBtn);
-
-        FloatLoop(_startBtn, 7f, 1.7f);
-        FloatLoop(_exitBtn, 7f, 2.05f);
     }
 
     /// <summary>让控件绕基准位置上下浮动（不同时长自然错开相位）。</summary>
@@ -472,13 +472,14 @@ public partial class UiLayer : CanvasLayer
             .SetTrans(Tween.TransitionType.Sine).SetEase(Tween.EaseType.InOut);
     }
 
-    private void AddHill(float x, float y, float w, float h, float r, Color col)
+    private Panel AddHill(float x, float y, float w, float h, float r, Color col)
     {
         var hill = new Panel { MouseFilter = Control.MouseFilterEnum.Ignore, Position = new Vector2(x, y), Size = new Vector2(w, h) };
         var sb = new StyleBoxFlat { BgColor = col };
         sb.SetCornerRadiusAll((int)r);
         hill.AddThemeStyleboxOverride("panel", sb);
         _menu.AddChild(hill);
+        return hill;
     }
 
     /// <summary>主菜单入场：各元素带回弹的依次浮现（有曲率，不生硬）。</summary>

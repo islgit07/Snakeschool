@@ -17,8 +17,10 @@
 
 - 吃苹果：体重 +N，越来越胖越来越慢
 - 催吐：尾部少一节，肥肉从蛇头抛物线飞出，落地成永久障碍
+- 吃成开局 5 倍体重：撑爆结算
 - 警报：体重达到开局 2 倍起，屏幕摇晃 + 红色暗角 + 心跳音
-- 结算：胜利只看「减肥成功」（数据不上屏），失败显示死因；最少苹果/最快用时入存档
+- 结算：胜利只看「减肥成功」，失败显示死因；最少苹果/最快用时入存档
+- 成就：7 项，解锁时从屏幕顶部弹出（矜持 / 搬石头 / 游龙 / 反方向的钟 / 衔尾蛇 / VIP / 科乐美秘技）
 
 ## 难度
 
@@ -34,25 +36,11 @@
 2. `dotnet build SnakeSchool.csproj`
 3. 用 Godot 打开工程直接运行，或 `godot --path .`
 
-调试参数（`--` 后追加）：`skipmenu`（跳过菜单）、`state=win|lose|paused|fat`、`fxtest`（循环转场演示）。
+## 作者的话
 
-## 技术
+这是我用来学习 C# 的小项目，希望我们可以一起共同进步。
 
-- Godot 4.7.2 mono / C# / .NET 8，竖屏 720×1280，`canvas_items` 拉伸自适应
-- 全部 UI 代码构建：`scripts/UiLayer.cs`（摇杆 / 液态体重条 / 木牌按钮）
-- 程序化音效与 BGM：`scripts/AudioBank.cs`（无外部音频文件）
-- 素材：[Sprout Lands UI Pack（免费版）](https://cupnooble.itch.io/sprout-lands-asset-pack)（仅限非商业使用）、字体 字由文艺黑 + 站酷庆科黄油体
-- 转场 shader 来自 [MrEliptik/godot_ui_components](https://github.com/MrEliptik/godot_ui_components)（MIT）
+## 许可证
 
-## 目录
-
-```
-scenes/Main.tscn        场景入口（Main / GameBoard / UiLayer / TransitionFx / Audio）
-scripts/Main.cs         状态机、回合步进、催吐规则、难度与输入
-scripts/GameBoard.cs    棋盘渲染：平滑蠕动蛇、粒子、飞行动画、肥胖摇晃
-scripts/UiLayer.cs      菜单 / HUD / 虚拟按键 / 摇杆 / 弹窗 / 警报暗角
-scripts/GameConfig.cs   全局参数与难度预设
-scripts/UiKit.cs        素材图集切片、字体、九宫格样式
-scripts/Audio*.cs       音效合成与播放、存档
-assets/                 字体与素材子集（构建必需）
-```
+本项目代码以 [MIT](LICENSE) 协议开源。
+第三方素材（Sprout Lands UI Pack、字由文艺黑等字体）版权归其各自作者，遵循其授权条款，此处仅作本地学习用途。

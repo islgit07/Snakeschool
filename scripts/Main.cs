@@ -531,6 +531,10 @@ public partial class Main : Node2D
                 StartGame(Diff);
                 foreach (Vector2I d in KonamiCode) SetDir(d);
             }
+            else if (a == "state=intro")
+            {
+                Ui.ShowIntro(); // 首局宣言弹窗视觉验证
+            }
             else if (a == "fxtest")
             {
                 // 纯视觉测试：进游戏后循环触发放慢的转场（不切状态），方便截图

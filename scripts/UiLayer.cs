@@ -35,6 +35,10 @@ public partial class UiLayer : CanvasLayer
     private Panel _hillBack, _hillFront;
     private Tween _intro;
 
+    private Control _introPanel;
+    private Panel _introBox;
+    private DifficultyPreset _pendingDiff;
+
     private Control _pausePanel;
     private Control _overPanel;
     private Panel _overBox;
@@ -60,6 +64,7 @@ public partial class UiLayer : CanvasLayer
         BuildHud();
         BuildPad();
         BuildMenu();
+        BuildIntro();
         BuildPause();
         BuildOver();
         BuildDangerFx();
@@ -527,7 +532,7 @@ public partial class UiLayer : CanvasLayer
 
         // 开始 / 退出（统一尺寸与字号）
         _startBtn = BarButton("开始游戏", 34, 160, 640, 400, 96);
-        Wire(_startBtn, () => Game.StartWithTransition(GameConfig.Difficulties[_selDiff]));
+        Wire(_startBtn, () => TryStart(GameConfig.Difficulties[_selDiff]));
         _menu.AddChild(_startBtn);
 
         _exitBtn = BarButton("退出游戏", 34, 160, 760, 400, 96);
@@ -543,6 +548,73 @@ public partial class UiLayer : CanvasLayer
         version.OffsetBottom = -10;
         version.HorizontalAlignment = HorizontalAlignment.Center;
         _menu.AddChild(version);
+    }
+
+    /// <summary>首次点「开始游戏」：先展示减肥宣言，确认后再真正开局。</summary>
+    private void TryStart(DifficultyPreset diff)
+    {
+        if (!Game.Audio.IntroSeen)
+        {
+            _pendingDiff = diff;
+            Game.Audio.MarkIntroSeen(); // 弹过即算看过，之后直接开局
+            ShowIntro();
+            return;
+        }
+        Game.StartWithTransition(diff);
+    }
+
+    private void BuildIntro()
+    {
+        _introPanel = new Control { MouseFilter = Control.MouseFilterEnum.Stop };
+        _introPanel.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
+        _introPanel.Visible = false;
+        _root.AddChild(_introPanel);
+
+        var dim = new ColorRect { Color = new Color(0.3f, 0.22f, 0.12f, 0.45f) };
+        dim.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
+        _introPanel.AddChild(dim);
+
+        _introBox = new Panel();
+        _introBox.Position = new Vector2(110, 420);
+        _introBox.Size = new Vector2(500, 430);
+        _introBox.AddThemeStyleboxOverride("panel", UiKit.WoodPanel(12));
+        _introPanel.AddChild(_introBox);
+
+        // 吉祥物趴在牌子上沿
+        var mascot = Sprite(UiKit.FaceGreen, 212, -38, 76);
+        _introBox.AddChild(mascot);
+
+        var line1 = TextLabel("贪吃蛇决定要减肥了", 34, Palette.Text);
+        line1.Position = new Vector2(0, 84);
+        line1.Size = new Vector2(500, 52);
+        line1.HorizontalAlignment = HorizontalAlignment.Center;
+        _introBox.AddChild(line1);
+
+        var line2 = TextLabel("不要再贪吃了哦", 27, Palette.SubText);
+        line2.Position = new Vector2(0, 152);
+        line2.Size = new Vector2(500, 44);
+        line2.HorizontalAlignment = HorizontalAlignment.Center;
+        _introBox.AddChild(line2);
+
+        var go = BarButton("出发", 34, 90, 280, 320, 88);
+        Wire(go, () =>
+        {
+            _introPanel.Visible = false;
+            Game.StartWithTransition(_pendingDiff);
+        });
+        _introBox.AddChild(go);
+    }
+
+    private void ShowIntro()
+    {
+        _introPanel.Visible = true;
+        _introBox.PivotOffset = _introBox.Size / 2f;
+        _introBox.Scale = new Vector2(0.85f, 0.85f);
+        _introBox.Modulate = new Color(1, 1, 1, 0);
+        var t = CreateTween().SetParallel(true);
+        t.TweenProperty(_introBox, "scale", Vector2.One, 0.35f)
+            .SetTrans(Tween.TransitionType.Back).SetEase(Tween.EaseType.Out);
+        t.TweenProperty(_introBox, "modulate:a", 1f, 0.25f);
     }
 
     /// <summary>让控件绕基准位置上下浮动（不同时长自然错开相位）。</summary>
@@ -881,10 +953,10 @@ public partial class UiLayer : CanvasLayer
         }
     }
 
-    /// <summary>键盘 Enter 在主菜单直接开始。</summary>
+    /// <summary>键盘 Enter 在主菜单直接开始（首次同样先看宣言）。</summary>
     public void PressStart()
     {
-        if (_menu.Visible) Game.StartWithTransition(GameConfig.Difficulties[_selDiff]);
+        if (_menu.Visible) TryStart(GameConfig.Difficulties[_selDiff]);
     }
 
     // ———————————————— 图形小件 ————————————————

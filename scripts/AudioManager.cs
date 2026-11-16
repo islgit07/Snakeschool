@@ -15,6 +15,9 @@ public partial class AudioManager : Node
 
     public bool Muted { get; private set; }
 
+    /// <summary>是否已经看过首次开局宣言弹窗（只弹一次）。</summary>
+    public bool IntroSeen { get; private set; }
+
     /// <summary>全局单例引用，供无 Main 引用的控件（如 SquishyToggle）播放音效。</summary>
     public static AudioManager Instance { get; private set; }
 
@@ -42,6 +45,12 @@ public partial class AudioManager : Node
     {
         Muted = !Muted;
         AudioServer.SetBusMute(AudioServer.GetBusIndex(BusMaster), Muted);
+        SavePrefs();
+    }
+
+    public void MarkIntroSeen()
+    {
+        IntroSeen = true;
         SavePrefs();
     }
 
@@ -78,6 +87,7 @@ public partial class AudioManager : Node
         var cf = new ConfigFile();
         if (cf.Load(SavePath) != Error.Ok) return;
         Muted = (bool)cf.GetValue("audio", "muted", false);
+        IntroSeen = (bool)cf.GetValue("story", "intro_seen", false);
         BestApples = (int)cf.GetValue("record", "best_apples", -1);
         BestTime = (float)cf.GetValue("record", "best_time", -1f);
         Wins = (int)cf.GetValue("record", "wins", 0);
@@ -87,6 +97,7 @@ public partial class AudioManager : Node
     {
         var cf = new ConfigFile();
         cf.SetValue("audio", "muted", Muted);
+        cf.SetValue("story", "intro_seen", IntroSeen);
         cf.SetValue("record", "best_apples", BestApples);
         cf.SetValue("record", "best_time", BestTime);
         cf.SetValue("record", "wins", Wins);

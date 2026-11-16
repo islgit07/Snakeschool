@@ -353,14 +353,25 @@ public partial class UiLayer : CanvasLayer
         bg.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
         _menu.AddChild(bg);
 
-        // logo 背后的柔光圆
+        // logo 背后的柔光圆（呼吸：缓慢缩放 + 明暗脉动）
         var halo = new Panel { MouseFilter = Control.MouseFilterEnum.Ignore };
         halo.Position = new Vector2(150, -30);
         halo.Size = new Vector2(420, 420);
+        halo.PivotOffset = new Vector2(210, 210);
         var haloSb = new StyleBoxFlat { BgColor = new Color(1, 1, 1, 0.38f) };
         haloSb.SetCornerRadiusAll(210);
         _menu.AddChild(halo);
         halo.AddThemeStyleboxOverride("panel", haloSb);
+        var haloTw = CreateTween().SetLoops();
+        haloTw.TweenProperty(halo, "scale", new Vector2(1.06f, 1.06f), 2.2f)
+            .SetTrans(Tween.TransitionType.Sine).SetEase(Tween.EaseType.InOut);
+        haloTw.TweenProperty(halo, "scale", Vector2.One, 2.2f)
+            .SetTrans(Tween.TransitionType.Sine).SetEase(Tween.EaseType.InOut);
+        var haloTw2 = CreateTween().SetLoops();
+        haloTw2.TweenProperty(halo, "modulate:a", 0.82f, 2.2f)
+            .SetTrans(Tween.TransitionType.Sine).SetEase(Tween.EaseType.InOut);
+        haloTw2.TweenProperty(halo, "modulate:a", 1f, 2.2f)
+            .SetTrans(Tween.TransitionType.Sine).SetEase(Tween.EaseType.InOut);
 
         // 底部两道草坡（曲率构图）
         AddHill(-140, 1010, 1000, 400, 220, new Color("e2d5a4"));
@@ -437,7 +448,7 @@ public partial class UiLayer : CanvasLayer
             _menu.AddChild(b);
         }
 
-        // 开始 / 退出（统一尺寸与字号）
+        // 开始 / 退出（统一尺寸与字号，带上下浮动）
         _startBtn = BarButton("开始游戏", 34, 160, 640, 400, 96);
         Wire(_startBtn, () => Game.StartWithTransition(GameConfig.Difficulties[_selDiff]));
         _menu.AddChild(_startBtn);
@@ -445,6 +456,20 @@ public partial class UiLayer : CanvasLayer
         _exitBtn = BarButton("退出游戏", 34, 160, 760, 400, 96);
         Wire(_exitBtn, () => GetTree().Quit());
         _menu.AddChild(_exitBtn);
+
+        FloatLoop(_startBtn, 7f, 1.7f);
+        FloatLoop(_exitBtn, 7f, 2.05f);
+    }
+
+    /// <summary>让控件绕基准位置上下浮动（不同时长自然错开相位）。</summary>
+    private void FloatLoop(Control c, float amp, float dur)
+    {
+        float baseY = c.Position.Y;
+        var tw = CreateTween().SetLoops();
+        tw.TweenProperty(c, "position:y", baseY - amp, dur)
+            .SetTrans(Tween.TransitionType.Sine).SetEase(Tween.EaseType.InOut);
+        tw.TweenProperty(c, "position:y", baseY + amp, dur)
+            .SetTrans(Tween.TransitionType.Sine).SetEase(Tween.EaseType.InOut);
     }
 
     private void AddHill(float x, float y, float w, float h, float r, Color col)
@@ -692,11 +717,11 @@ public partial class UiLayer : CanvasLayer
         // 没有正文（胜利只显示"减肥成功"）时，面板收窄、按钮上移
         bool hasBody = !string.IsNullOrWhiteSpace(body);
         _overBody.Visible = hasBody;
-        float by = hasBody ? 326f : 236f;
+        float by = hasBody ? 320f : 212f;
         _overAgain.Position = new Vector2(60, by);
         _overMenu.Position = new Vector2(60, by + 100f);
-        _overBox.Size = new Vector2(520, hasBody ? 540 : 430);
-        _overBox.Position = new Vector2(100, hasBody ? 370 : 420);
+        _overBox.Size = new Vector2(520, hasBody ? 528f : 420f);
+        _overBox.Position = new Vector2(100, hasBody ? 376f : 430f);
 
         _overPanel.Visible = true;
 

@@ -1,102 +1,300 @@
 using Godot;
 using System.Collections.Generic;
 
-public enum GameState { Playing, Won, Lost }
+public enum GameState { Menu, Playing, Paused, Won, Lost }
 public enum DeathCause { None, Wall, Obstacle, SelfBite }
 
+/// <summary>
+/// 游戏主控：状态机、回合步进、输入（键盘 + 触摸滑动）、主动催吐规则与结算。
+/// 画面交给 GameBoard，界面交给 UiLayer，音效交给 AudioManager。
+/// </summary>
 public partial class Main : Node2D
 {
+    public GameState State = GameState.Menu;
+    public DeathCause DeathCause = DeathCause.None;
+
+    public AudioManager Audio { get; private set; }
+    public GameBoard Board { get; private set; }
+    public UiLayer Ui { get; private set; }
+    public TransitionFx Fx { get; private set; }
+
+    public DifficultyPreset Diff = GameConfig.Difficulties[1];
+
+    private readonly List<Vector2I> _snake = new();
+    private readonly List<Vector2I> _prevSnake = new();          // 上一步位置，用于平滑插值
+    private readonly HashSet<Vector2I> _obstacles = new();
+    private readonly List<Vector2I> _foods = new();
+    private readonly HashSet<Vector2I> _flyingTargets = new();   // 飞行中肉块的落点占位，防止重复吐到同一格
+
     private Vector2I _dir = Vector2I.Right;
     private Vector2I _nextDir = Vector2I.Right;
+    private float _stepTimer;
+    private bool _spitUsedThisStep;
 
-    private List<Vector2I> _snake = new();
-    private HashSet<Vector2I> _obstacles = new();
-    private List<Vector2I> _foods = new();
-    private HashSet<Vector2I> _flyingChunks = new(); // 本帧刚吐出、还在飞的肉块（简化：直接落点）
+    private int _foodEaten;
+    private float _runTime;
+    private float _deathFade;
 
-    private float _stepTimer = 0f;
-    private float _spitTimer = 0f;
-    private GameState _state = GameState.Playing;
-    private DeathCause _deathCause = DeathCause.None;
+    private bool _swiping;
+    private Vector2 _swipeFrom;
 
-    private Label _statusLabel;
-    private Label _overLabel;
-    private int _foodEaten = 0;
+    /// <summary>游戏时间倍率：右上角按钮切换 1x / 2x。</summary>
+    public float SpeedScale { get; private set; } = 1f;
+
+    /// <summary>
+    /// 肥胖警报强度：体重达到开局 2 倍起警，2.5 倍满格（用于晃动/红暗角/心跳音）。
+    /// </summary>
+    public float FatAlarm
+    {
+        get
+        {
+            int start = Diff.StartLength;
+            if (_snake.Count == 0) return 0f;
+            return Mathf.Clamp((float)(_snake.Count - 2 * start) / (0.5f * start), 0f, 1f);
+        }
+    }
+
+    private float _heartTimer = 99f;
+
+    // —— 供 GameBoard / UiLayer 读取 ——
+    public IReadOnlyList<Vector2I> Snake => _snake;
+    public IReadOnlyList<Vector2I> PrevSnake => _prevSnake;
+    public IReadOnlyList<Vector2I> Foods => _foods;
+    public HashSet<Vector2I> Obstacles => _obstacles;
+    public Vector2I Dir => _dir;
+    public int FoodEaten => _foodEaten;
+    public int RunSeconds => (int)_runTime;
+    public float DeathFade => Mathf.Clamp(_deathFade, 0f, 1f);
+    public float MoveT => Mathf.Clamp(_stepTimer / Mathf.Max(0.01f, Diff.StepIntervalFor(_snake.Count)), 0f, 1f);
+    public bool CanSpit => State == GameState.Playing && !_spitUsedThisStep && _snake.Count > Diff.WinLength;
 
     public override void _Ready()
     {
-        _statusLabel = new Label();
-        _overLabel = new Label();
-        _statusLabel.Position = new Vector2(10, 8);
-        _overLabel.Position = new Vector2(140, 290);
-        _overLabel.Visible = false;
-        AddChild(_statusLabel);
-        AddChild(_overLabel);
+        Audio = GetNode<AudioManager>("Audio");
+        Board = GetNode<GameBoard>("GameBoard");
+        Ui = GetNode<UiLayer>("UiLayer");
+        Fx = GetNode<TransitionFx>("TransitionFx");
+        Board.Game = this;
+        Ui.Game = this;
 
-        ResetRun(); // 必须在 Label 创建之后：ResetRun 里会碰 _overLabel
+        Board.MenuDemo = true;
+        Ui.ShowMenu();
+        ApplyDebugArgs();
     }
 
     public override void _Process(double delta)
     {
-        HandleInput();
-        if (_state != GameState.Playing) { QueueRedraw(); return; }
-
         float dt = (float)delta;
 
-        _stepTimer += dt;
-        if (_stepTimer >= GameConfig.StepIntervalFor(_snake.Count))
+        if (State == GameState.Playing)
         {
-            _stepTimer = 0f;
-            Step();
-        }
+            HandleKeyboard();
+            _runTime += dt;
+            _stepTimer += dt * SpeedScale;
+            if (_stepTimer >= Diff.StepIntervalFor(_snake.Count))
+            {
+                _stepTimer -= Diff.StepIntervalFor(_snake.Count);
+                Step();
+            }
 
-        _spitTimer += dt;
-        if (_spitTimer >= GameConfig.AutoSpitInterval)
+            // 胖到两倍以后：心跳声随警报强度越来越急
+            float alarm = FatAlarm;
+            if (alarm > 0f)
+            {
+                _heartTimer += dt;
+                float period = Mathf.Lerp(0.85f, 0.42f, alarm);
+                if (_heartTimer >= period)
+                {
+                    _heartTimer = 0f;
+                    Audio.Play(AudioBank.Land, 0.55f, -8f);
+                }
+            }
+            else
+            {
+                _heartTimer = 99f;
+            }
+        }
+        else if (State == GameState.Lost && _deathFade > 0f)
         {
-            _spitTimer = 0f;
-            Spit();
+            _deathFade -= dt * 1.4f;
         }
-
-        UpdateStatus();
-        QueueRedraw();
     }
 
-    private void HandleInput()
+    public override void _UnhandledInput(InputEvent @event)
     {
-        if (_state != GameState.Playing)
+        if (@event is InputEventKey { Pressed: true } key)
         {
-            if (Input.IsKeyPressed(Key.R)) ResetRun();
+            if (key.Keycode == Key.P && (State == GameState.Playing || State == GameState.Paused))
+                TogglePause();
+            else if (key.Keycode == Key.R && (State == GameState.Won || State == GameState.Lost))
+                StartGame(Diff);
+            else if (key.Keycode == Key.Enter && State == GameState.Menu)
+                Ui.PressStart();
             return;
         }
 
-        if (Input.IsKeyPressed(Key.W) && _dir != Vector2I.Down) _nextDir = Vector2I.Up;
-        else if (Input.IsKeyPressed(Key.S) && _dir != Vector2I.Up) _nextDir = Vector2I.Down;
-        else if (Input.IsKeyPressed(Key.A) && _dir != Vector2I.Right) _nextDir = Vector2I.Left;
-        else if (Input.IsKeyPressed(Key.D) && _dir != Vector2I.Left) _nextDir = Vector2I.Right;
-
-        if (Input.IsKeyPressed(Key.Space)) Spit();
+        // 触摸滑动转向（桌面端开启"鼠标模拟触摸"后同样生效）
+        if (State != GameState.Playing) return;
+        if (@event is InputEventScreenTouch t)
+        {
+            _swiping = t.Pressed;
+            _swipeFrom = t.Position;
+        }
+        else if (@event is InputEventScreenDrag d && _swiping)
+        {
+            Vector2 delta = d.Position - _swipeFrom;
+            if (delta.Length() < 52f) return;
+            _swipeFrom = d.Position; // 支持不抬手的连续滑动
+            SetDir(Mathf.Abs(delta.X) >= Mathf.Abs(delta.Y)
+                ? (delta.X > 0 ? Vector2I.Right : Vector2I.Left)
+                : (delta.Y > 0 ? Vector2I.Down : Vector2I.Up));
+        }
     }
 
-    private void ResetRun()
+    private void HandleKeyboard()
     {
+        if (Input.IsKeyPressed(Key.W) || Input.IsKeyPressed(Key.Up)) SetDir(Vector2I.Up);
+        else if (Input.IsKeyPressed(Key.S) || Input.IsKeyPressed(Key.Down)) SetDir(Vector2I.Down);
+        else if (Input.IsKeyPressed(Key.A) || Input.IsKeyPressed(Key.Left)) SetDir(Vector2I.Left);
+        else if (Input.IsKeyPressed(Key.D) || Input.IsKeyPressed(Key.Right)) SetDir(Vector2I.Right);
+
+        if (Input.IsKeyPressed(Key.Space)) TrySpit();
+    }
+
+    // ———————————————— 输入动作 ————————————————
+
+    public void SetDir(Vector2I d)
+    {
+        if (State != GameState.Playing) return;
+        if (d == _dir || d == -_dir) return;
+        _nextDir = d;
+        Audio.PlayMinor(AudioBank.Turn);
+    }
+
+    /// <summary>
+    /// 主动催吐：把尾巴一节吐出去，肉块飞到蛇头当前方向前方 SpitDistance 格（靠近墙/被占时自动往回收）。
+    /// 每走一步限吐一次，防止站桩连吐秒赢。
+    /// </summary>
+    public bool TrySpit()
+    {
+        if (State != GameState.Playing) return false;
+        if (!CanSpit) { Audio.PlayMinor(AudioBank.Denied); return false; }
+
+        Vector2I head = _snake[0];
+        Vector2I land = default;
+        bool found = false;
+        for (int k = Diff.SpitDistance; k >= 1; k--)
+        {
+            Vector2I cand = head + _dir * k;
+            if (cand.X < 0 || cand.X >= GameConfig.GridW || cand.Y < 0 || cand.Y >= GameConfig.GridH) continue;
+            if (_obstacles.Contains(cand) || _foods.Contains(cand) || _flyingTargets.Contains(cand)) continue;
+            land = cand;
+            found = true;
+            break;
+        }
+        if (!found) { Audio.PlayMinor(AudioBank.Denied); return false; }
+
+        // 尾巴少一节，肉块从蛇头"吐"出去，飞向落点
+        _snake.RemoveAt(_snake.Count - 1);
+        if (_prevSnake.Count > _snake.Count) _prevSnake.RemoveAt(_prevSnake.Count - 1);
+
+        _flyingTargets.Add(land);
+        Board.LaunchChunk(head, land);
+        Audio.Play(AudioBank.Spit, (float)GD.RandRange(0.9, 1.1));
+        _spitUsedThisStep = true;
+        Ui.UpdateHud();
+
+        if (_snake.Count <= Diff.WinLength) Win();
+        return true;
+    }
+
+    public void TogglePause()
+    {
+        if (State == GameState.Playing)
+        {
+            State = GameState.Paused;
+            Ui.ShowPause(true);
+            Audio.PlayMinor(AudioBank.Click);
+        }
+        else if (State == GameState.Paused)
+        {
+            State = GameState.Playing;
+            Ui.ShowPause(false);
+            Audio.PlayMinor(AudioBank.Click);
+        }
+    }
+
+    // ———————————————— 流程 ————————————————
+
+    public void StartGame(DifficultyPreset diff)
+    {
+        Diff = diff;
         _snake.Clear();
+        _prevSnake.Clear();
         _obstacles.Clear();
         _foods.Clear();
-        for (int i = 0; i < GameConfig.StartLength; i++)
-            _snake.Add(new Vector2I(10 - i, 10));
-        _dir = Vector2I.Right;
-        _nextDir = Vector2I.Right;
+        _flyingTargets.Clear();
+
+        foreach (Vector2I c in BuildSpawnSnake(diff.StartLength)) _snake.Add(c);
+        _prevSnake.AddRange(_snake);
+        _dir = _nextDir = Vector2I.Right;
         _stepTimer = 0f;
-        _spitTimer = 0f;
+        _spitUsedThisStep = false;
         _foodEaten = 0;
-        _state = GameState.Playing;
-        _deathCause = DeathCause.None;
-        for (int i = 0; i < GameConfig.MaxFood; i++) PlaceFood();
-        _overLabel.Visible = false;
+        _runTime = 0f;
+        _deathFade = 0f;
+        DeathCause = DeathCause.None;
+
+        for (int i = 0; i < diff.MaxFood; i++) SpawnFood();
+
+        Board.MenuDemo = false;
+        Board.OnNewRun();
+        State = GameState.Playing;
+        Ui.EnterGameHud();
     }
+
+    public void BackToMenu()
+    {
+        State = GameState.Menu;
+        Board.OnNewRun();
+        Board.MenuDemo = true;
+        Ui.ShowMenu();
+    }
+
+    /// <summary>带波浪转场的开局 / 回菜单。</summary>
+    public void StartWithTransition(DifficultyPreset diff) => Fx.Run(() => StartGame(diff));
+
+    public void BackToMenuWithTransition() => Fx.Run(BackToMenu);
+
+    /// <summary>切换 1x / 2x 游戏速度。</summary>
+    public void ToggleSpeed()
+    {
+        SpeedScale = SpeedScale > 1f ? 1f : 2f;
+        Ui.UpdateSpeed();
+    }
+
+    /// <summary>
+    /// 开局蛇形铺位：头排从头往左铺满，剩余的铺到下一行，保证全部落在棋盘内，
+    /// 且蛇头朝右有足够的活动空间（原版直排开局会把尾巴伸到棋盘外）。
+    /// </summary>
+    private static List<Vector2I> BuildSpawnSnake(int len)
+    {
+        var s = new List<Vector2I>();
+        const int headX = 5, rowY = 10;
+        int first = Mathf.Min(len, headX + 1);
+        for (int i = 0; i < first; i++) s.Add(new Vector2I(headX - i, rowY));
+        int rest = len - first;
+        for (int i = 0; i < rest; i++) s.Add(new Vector2I(i, rowY + 1));
+        return s;
+    }
+
+    // ———————————————— 回合步进 ————————————————
 
     private void Step()
     {
+        _prevSnake.Clear();
+        _prevSnake.AddRange(_snake);
+
         _dir = _nextDir;
         Vector2I newHead = _snake[0] + _dir;
 
@@ -125,138 +323,113 @@ public partial class Main : Node2D
         if (_foods.Remove(newHead))
         {
             _foodEaten++;
-            for (int i = 0; i < GameConfig.FoodFatGain; i++)
+            for (int i = 0; i < Diff.FoodFatGain; i++)
                 _snake.Add(_snake[^1]); // 尾部原地复制：变长
-            PlaceFood();
+            Audio.Play(AudioBank.Eat, (float)GD.RandRange(0.95, 1.1));
+            Board.OnEat(GameConfig.CellCenter(newHead), Diff.FoodFatGain);
+            SpawnFood();
         }
         else
         {
             _snake.RemoveAt(_snake.Count - 1);
         }
 
-        // 胜利判定
-        if (_snake.Count <= GameConfig.WinLength)
-        {
-            _state = GameState.Won;
-            ShowEnd(true);
-        }
+        _spitUsedThisStep = false; // 每走一步恢复一次催吐机会
+        Ui.UpdateHud();
+
+        if (_snake.Count <= Diff.WinLength) Win();
     }
 
-    /// <summary>
-    /// 催吐：把尾巴一节吐出去，落在蛇头前方 SpitDistance 格（越界则贴墙）。
-    /// 吐出的肉块变成永久障碍物。
-    /// </summary>
-    private void Spit()
+    /// <summary>随机刷苹果：避开蛇身、肥肉、已有苹果和飞行落点。</summary>
+    private void SpawnFood()
     {
-        if (_snake.Count <= GameConfig.WinLength || _state != GameState.Playing) return;
-
-        Vector2I tail = _snake[^1];
-        _snake.RemoveAt(_snake.Count - 1);
-
-        Vector2I land = _snake[0] + _dir * GameConfig.SpitDistance;
-        land.X = Mathf.Clamp(land.X, 0, GameConfig.GridW - 1);
-        land.Y = Mathf.Clamp(land.Y, 0, GameConfig.GridH - 1);
-        _obstacles.Add(land);
-        _flyingChunks.Add(land); // 简化处理：落点直接生效，飞行只是表现
-    }
-
-    private void PlaceFood()
-    {
-        for (int attempt = 0; attempt < 200; attempt++)
+        for (int i = 0; i < 300; i++)
         {
-            Vector2I pos = new(
+            Vector2I p = new(
                 (int)GD.RandRange(0, GameConfig.GridW - 1),
                 (int)GD.RandRange(0, GameConfig.GridH - 1));
-            if (_snake.Contains(pos) || _obstacles.Contains(pos) || _foods.Contains(pos)) continue;
-            _foods.Add(pos);
+            if (_snake.Contains(p) || _obstacles.Contains(p) || _foods.Contains(p) || _flyingTargets.Contains(p)) continue;
+            _foods.Add(p);
             return;
         }
     }
 
+    /// <summary>飞行肉块落地：变成永久障碍。</summary>
+    public void OnChunkLanded(Vector2I cell)
+    {
+        _flyingTargets.Remove(cell);
+        if (State is GameState.Won or GameState.Lost) return; // 结算后落地的肉块不再生成障碍
+        _obstacles.Add(cell);
+        Audio.Play(AudioBank.Land, (float)GD.RandRange(0.9, 1.15));
+    }
+
+    // ———————————————— 结算 ————————————————
+
+    private void Win()
+    {
+        State = GameState.Won;
+        bool newRecord = Audio.ReportWin(_foodEaten, _runTime);
+        Audio.Play(AudioBank.Win);
+        Board.CelebrateWin();
+        Ui.ShowOver(true, "", newRecord); // 只显示"减肥成功"，不展示数据
+    }
+
     private void Die(DeathCause cause)
     {
-        _deathCause = cause;
-        _state = GameState.Lost;
-        ShowEnd(false);
-    }
+        DeathCause = cause;
+        State = GameState.Lost;
+        _deathFade = 1f;
+        Audio.Play(AudioBank.Die);
+        Board.OnDeath();
 
-    private void ShowEnd(bool won)
-    {
-        string title = won ? "★ 你瘦下来了！ ★" : "游戏结束";
-        string reason = _deathCause switch
+        string reason = cause switch
         {
-            DeathCause.Wall => "你撞墙了。",
-            DeathCause.Obstacle => "你被自己吐出的肥肉噎死了。",
-            DeathCause.SelfBite => "你咬到了自己。",
-            _ => ""
+            DeathCause.Wall => "撞上了围墙。",
+            DeathCause.Obstacle => "被自己吐出的肥肉绊倒了。",
+            DeathCause.SelfBite => "咬到了自己的尾巴。",
+            _ => "",
         };
-        _overLabel.Text = won
-            ? $"{title}\n吃了 {_foodEaten} 个苹果，吐了 {GameConfig.StartLength - _snake.Count} 节"
-            : $"{title}\n{reason}\n体重 {_snake.Count} 节（目标 ≤{GameConfig.WinLength}）\n按 R 重开";
-        _overLabel.Visible = true;
+        Ui.ShowOver(false, reason, false); // 只显示失败原因，不展示数据
     }
 
-    private void UpdateStatus()
+    // ———————————————— 调试参数（截图验收用） ————————————————
+
+    private async void LoopTestTransitions()
     {
-        int len = _snake.Count;
-        string title = len >= 15 ? "肥胖" : len >= 11 ? "微胖" : len >= 8 ? "正常" : "苗条";
-        _statusLabel.Text = $"体重: {len} 节（{title}）  目标 ≤{GameConfig.WinLength}  苹果: {_foodEaten}";
-    }
-
-    public override void _Draw()
-    {
-        // 地板
-        DrawRect(new Rect2(0, 0, GameConfig.GridW * GameConfig.GridSize, GameConfig.GridH * GameConfig.GridSize),
-            new Color(0.13f, 0.13f, 0.16f));
-
-        // 网格线（淡）
-        Color gridLine = new(1, 1, 1, 0.03f);
-        for (int x = 0; x <= GameConfig.GridW; x++)
-            DrawLine(new Vector2(x * GameConfig.GridSize, 0),
-                new Vector2(x * GameConfig.GridSize, GameConfig.GridH * GameConfig.GridSize), gridLine);
-        for (int y = 0; y <= GameConfig.GridH; y++)
-            DrawLine(new Vector2(0, y * GameConfig.GridSize),
-                new Vector2(GameConfig.GridW * GameConfig.GridSize, y * GameConfig.GridSize), gridLine);
-
-        // 吐出的肥肉障碍（暗肉色，带高光边）
-        foreach (Vector2I ob in _obstacles)
+        while (IsInsideTree())
         {
-            Rect2 r = CellRect(ob);
-            DrawRect(r, new Color(0.45f, 0.25f, 0.2f));
-            DrawRect(new Rect2(r.Position + new Vector2(4, 4), r.Size - new Vector2(8, 8)),
-                new Color(0.62f, 0.38f, 0.3f));
-        }
-
-        // 苹果（亮红圆）
-        foreach (Vector2I food in _foods)
-        {
-            Vector2 center = CellCenter(food);
-            DrawCircle(center, GameConfig.GridSize * 0.35f, new Color(0.85f, 0.2f, 0.2f));
-            DrawCircle(center + new Vector2(-3, -3), GameConfig.GridSize * 0.1f, new Color(1f, 0.6f, 0.6f));
-        }
-
-        // 蛇身：从粉（胖）到绿（瘦）渐变，头部黄
-        int len = _snake.Count;
-        float t = Mathf.Clamp((float)(len - GameConfig.WinLength) / (GameConfig.StartLength - GameConfig.WinLength), 0f, 1f);
-        Color bodyColor = new Color(0.3f, 0.85f, 0.45f).Lerp(new Color(0.95f, 0.55f, 0.75f), t);
-
-        for (int i = _snake.Count - 1; i >= 0; i--)
-        {
-            Color c = i == 0 ? new Color(0.92f, 0.85f, 0.3f) : bodyColor;
-            Rect2 r = CellRect(_snake[i]);
-            DrawRect(r, c);
+            await ToSignal(GetTree().CreateTimer(4.0), "timeout");
+            Fx.Run(null, 2.5f); // 盖 0.8s → 掀 0.8s，循环触发
         }
     }
 
-    private Rect2 CellRect(Vector2I cell)
+    private void ApplyDebugArgs()
     {
-        return new Rect2(cell.X * GameConfig.GridSize + 1, cell.Y * GameConfig.GridSize + 1,
-            GameConfig.GridSize - 2, GameConfig.GridSize - 2);
-    }
-
-    private Vector2 CellCenter(Vector2I cell)
-    {
-        return new Vector2(cell.X * GameConfig.GridSize + GameConfig.GridSize / 2f,
-            cell.Y * GameConfig.GridSize + GameConfig.GridSize / 2f);
+        var args = OS.GetCmdlineUserArgs();
+        GD.Print($"[debug] user args: [{string.Join(", ", args)}]");
+        foreach (string a in args)
+        {
+            if (a == "skipmenu") StartGame(Diff);
+            else if (a == "state=win")
+            {
+                StartGame(Diff);
+                while (_snake.Count > Diff.WinLength + 1) _snake.RemoveAt(_snake.Count - 1);
+                Win();
+            }
+            else if (a == "state=lose") { StartGame(Diff); Die(DeathCause.SelfBite); }
+            else if (a == "state=paused") { StartGame(Diff); TogglePause(); }
+            else if (a == "state=fat")
+            {
+                // 模拟胖到两倍以上：验证肥胖警报（摇晃/红暗角/心跳）
+                StartGame(Diff);
+                for (int i = 0; i < 24; i++) _snake.Add(_snake[^1]);
+            }
+            else if (a == "fxtest")
+            {
+                // 纯视觉测试：进游戏后循环触发放慢的转场（不切状态），方便截图
+                StartGame(Diff);
+                LoopTestTransitions();
+            }
+        }
     }
 }

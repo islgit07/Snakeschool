@@ -2,3 +2,7 @@
 *.user
 obj/
 bin/
+
+# 第三方完整包不入库（许可限制/他人作品，工程内 assets/ 为构建所需子集）
+Sprout Lands - UI Pack - Basic pack/
+snake_snack_attack_windows/

@@ -10,23 +10,32 @@ config_version=5
 
 [application]
 
-config/name="SnakeSchool"
-config/version="0.0"
+config/name="贪吃蛇减肥"
+config/version="0.2"
 run/main_scene="res://scenes/Main.tscn"
 config/features=PackedStringArray("4.7", "C#")
+boot_splash/bg_color=Color(0.972, 0.929, 0.827, 1)
 
 [display]
 
-window/size/viewport_width=640
-window/size/viewport_height=640
+window/size/viewport_width=720
+window/size/viewport_height=1280
+window/size/window_width_override=450
+window/size/window_height_override=800
 window/stretch/mode="canvas_items"
+window/stretch/aspect="expand"
+window/handheld/orientation="portrait"
 
 [dotnet]
 
 project/assembly_name="SnakeSchool"
 
+[input_devices]
+
+pointing/emulate_touch_from_mouse=true
+
 [rendering]
 
 renderer/rendering_method="gl_compatibility"
 renderer/rendering_method.mobile="gl_compatibility"
-environment/defaults/default_clear_color=Color(0.12, 0.12, 0.14, 1)
+environment/defaults/default_clear_color=Color(0.972, 0.929, 0.827, 1)

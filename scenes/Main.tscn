@@ -1,6 +1,23 @@
-[gd_scene load_steps=2 format=3]
+[gd_scene load_steps=6 format=3]
 
 [ext_resource type="Script" path="res://scripts/Main.cs" id="1_main"]
+[ext_resource type="Script" path="res://scripts/GameBoard.cs" id="2_board"]
+[ext_resource type="Script" path="res://scripts/UiLayer.cs" id="3_ui"]
+[ext_resource type="Script" path="res://scripts/AudioManager.cs" id="4_audio"]
+[ext_resource type="Script" path="res://scripts/TransitionFx.cs" id="5_fx"]
 
 [node name="Main" type="Node2D"]
 script = ExtResource("1_main")
+
+[node name="GameBoard" type="Node2D" parent="."]
+script = ExtResource("2_board")
+
+[node name="UiLayer" type="CanvasLayer" parent="."]
+script = ExtResource("3_ui")
+
+[node name="TransitionFx" type="CanvasLayer" parent="."]
+layer = 100
+script = ExtResource("5_fx")
+
+[node name="Audio" type="Node" parent="."]
+script = ExtResource("4_audio")

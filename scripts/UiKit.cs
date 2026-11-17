@@ -23,13 +23,57 @@ public static class UiKit
     private static FontFile MakeUiFont()
     {
         var f = GD.Load<FontFile>("res://assets/fonts/wenyi_hei.ttf");
-        f.Fallbacks = new Godot.Collections.Array<Font> { ThemeDB.FallbackFont };
+
+        // 中文主字体没有假名/谚文/泰文，按顺序挂上 Noto 子集（只保留界面用到的字符，共约 160 KB）。
+        // 子集由 tools/make_font_subsets.py 生成，字重统一 Bold，和中文主字体观感一致。
+        var fallbacks = new Godot.Collections.Array<Font>();
+        foreach (string path in new[]
+        {
+            "res://assets/fonts/noto_jp_subset.otf",
+            "res://assets/fonts/noto_kr_subset.otf",
+            "res://assets/fonts/noto_th_subset.ttf",
+        })
+        {
+            var extra = GD.Load<FontFile>(path);
+            if (extra != null) fallbacks.Add(extra);
+        }
+        fallbacks.Add(ThemeDB.FallbackFont);
+
+        f.Fallbacks = fallbacks;
         return f;
     }
 
     // 像素字体：拉丁装饰备用
     private static FontFile _pixel;
     public static FontFile PixelFont => _pixel ??= MakePixelFont();
+
+    // 繁体专用：文艺黑缺 44 个字，繁体的字几乎必然掉到系统细体，
+    // 所以繁体整门语言都改用 Noto Sans TC 子集，避免一句话里两种字重。
+    private static Font _hant;
+    public static Font HantFont => _hant ??= MakeHantFont();
+
+    private static Font MakeHantFont()
+    {
+        // 首选圆体「粉圆」，只有 Regular，用 FontVariation 加粗贴近主字体的笔画厚度；
+        // 缺失时退回 Noto TC（方一些，但字重本来就对）。
+        var huninn = GD.Load<FontFile>("res://assets/fonts/huninn_tc_subset.ttf");
+        FontFile f = huninn ?? GD.Load<FontFile>("res://assets/fonts/noto_tc_subset.otf");
+        if (f == null) return UiFont;      // 未导入/缺文件时退回主字体，别让 UI 崩掉
+
+        var fb = new Godot.Collections.Array<Font>();
+        var jp = GD.Load<FontFile>("res://assets/fonts/noto_jp_subset.otf");
+        if (jp != null) fb.Add(jp);      // 子集外的字先用日文字库兜一层
+        fb.Add(ThemeDB.FallbackFont);
+        f.Fallbacks = fb;
+
+        // 粉圆只有 Regular，模拟加粗一档，避免繁体比简体细一圈
+        if (huninn == null) return f;
+        return new FontVariation { BaseFont = f, VariationEmbolden = 0.6f, Fallbacks = fb };
+    }
+
+    /// <summary>按语言取界面字体：繁体走独立的 TC 字库，其余用中文主字体。</summary>
+    public static Font UiFontFor(Loc.Id lang) =>
+        lang == Loc.Id.ZhHant ? HantFont : UiFont;
 
     private static FontFile MakePixelFont()
     {

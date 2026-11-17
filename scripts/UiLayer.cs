@@ -32,12 +32,19 @@ public partial class UiLayer : CanvasLayer
     private TextureRect _mascot;
     private Label _title;
     private Button _startBtn, _exitBtn;
+    private Button _langBtn;
     private Panel _hillBack, _hillFront;
     private Tween _intro;
 
     private Control _introPanel;
     private Panel _introBox;
+    private Label _introLine1, _introLine2;
+    private Button _goBtn;
     private DifficultyPreset _pendingDiff;
+
+    private Control _langPanel;
+    private TextureRect[] _langMarks;
+    private Label _pauseTitle;
 
     private Control _pausePanel;
     private Control _overPanel;
@@ -57,6 +64,8 @@ public partial class UiLayer : CanvasLayer
 
     public override void _Ready()
     {
+        Loc.Init();
+
         _root = new Control { MouseFilter = Control.MouseFilterEnum.Ignore };
         _root.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
         AddChild(_root);
@@ -69,8 +78,85 @@ public partial class UiLayer : CanvasLayer
         BuildOver();
         BuildDangerFx();
         BuildAchievements();
+        BuildLangPanel();
 
         SelectDiff(_selDiff);
+
+        // 建完后统一翻译一次；之后切换语言只重走这一遍 + 刷新动态文本
+        Loc.Changed += ApplyLanguage;
+        Loc.TranslateTree(_root);
+        ApplyUiFont();
+        ApplyLanguageStyles();
+    }
+
+    /// <summary>语言切换：静态文案走控件树翻译，动态文案单独刷新。</summary>
+    private void ApplyLanguage()
+    {
+        Loc.TranslateTree(_root);
+        ApplyUiFont();
+        ApplyLanguageStyles();
+        RefreshLangMarks();
+        if (Game != null)
+        {
+            UpdateHud();      // 体重 / 催吐状态
+            UpdateSpeed();    // ×1 / ×2 与配色
+        }
+    }
+
+    /// <summary>繁体的字文艺黑缺四成，整门语言换成 TC 字库，避免同句两种字重。</summary>
+    private void ApplyUiFont()
+    {
+        Font font = UiKit.UiFontFor(Loc.Current);
+        SetFontRecursive(_root, font);
+        if (_title != null && _title.LabelSettings != null) _title.LabelSettings.Font = font;
+    }
+
+    private static void SetFontRecursive(Node node, Font font)
+    {
+        switch (node)
+        {
+            case Label l: l.AddThemeFontOverride("font", font); break;
+            case Button b: b.AddThemeFontOverride("font", font); break;
+        }
+        foreach (Node child in node.GetChildren())
+            SetFontRecursive(child, font);
+    }
+
+    /// <summary>
+    /// 各语言单词长度差得远（"WYMIOT" vs "催吐"），圆按钮和标题按实测宽度自动收字号。
+    /// </summary>
+    private void ApplyLanguageStyles()
+    {
+        FitFont(_spitBtn, 168f, 46);
+        FitFont(_pauseBtn, 48f, 30);
+        FitFont(_overTitle, 460f, 48);
+        FitFont(_achName, 424f, 30);
+        FitFont(_pauseTitle, 430f, 48);
+        FitFont(_introLine1, 462f, 34);
+        FitFont(_introLine2, 462f, 27);
+        FitFont(_goBtn, 150f, 34);
+        _langBtn.Text = Loc.ShortName;
+        FitFont(_langBtn, 84f, 26);
+    }
+
+    /// <summary>把控件字号一路收到文本宽度装得下为止。</summary>
+    private static void FitFont(Control c, float maxWidth, int baseSize)
+    {
+        if (c == null) return;
+        string text = c switch
+        {
+            Button b => b.Text,
+            Label l => l.Text,
+            _ => "",
+        };
+        if (string.IsNullOrEmpty(text)) return;
+
+        Font font = c.GetThemeFont("font") ?? UiKit.UiFont;
+        int size = baseSize;
+        while (size > 10 &&
+               font.GetStringSize(text, HorizontalAlignment.Left, -1, size).X > maxWidth)
+            size -= 2;
+        c.AddThemeFontSizeOverride("font_size", size);
     }
 
     /// <summary>成就弹出条（灵动岛式：从屏幕顶部滑入）。</summary>
@@ -119,7 +205,7 @@ public partial class UiLayer : CanvasLayer
     {
         if (_achBusy || _achQueue.Count == 0) return;
         _achBusy = true;
-        _achName.Text = Achievements.NameOf(_achQueue.Dequeue());
+        _achName.Text = Loc.T(Achievements.NameOf(_achQueue.Dequeue()));
 
         _achToast.Position = new Vector2(80, -110);
         _achToast.Visible = true;
@@ -367,6 +453,13 @@ public partial class UiLayer : CanvasLayer
         _joy = new JoystickPanel { Position = new Vector2(108, 206), Size = new Vector2(124, 124) };
         _joy.AddThemeStyleboxOverride("panel", CircleStyle(124, Palette.Cream));
         _joy.OnDir = d => Game.SetDir(d);
+        _joy.OnOffset = off => _joyKnob.Position = new Vector2(30, 30) + off * 30f;
+        _joy.OnRelease = () =>
+        {
+            var t = CreateTween();
+            t.TweenProperty(_joyKnob, "position", new Vector2(30, 30), 0.3f)
+                .SetTrans(Tween.TransitionType.Back).SetEase(Tween.EaseType.Out);
+        };
         _pad.AddChild(_joy);
 
         _joyKnob = new Panel { MouseFilter = Control.MouseFilterEnum.Ignore };
@@ -539,8 +632,8 @@ public partial class UiLayer : CanvasLayer
         Wire(_exitBtn, () => GetTree().Quit());
         _menu.AddChild(_exitBtn);
 
-        // 底部版本号
-        var version = TextLabel("v0.1.0", 16, new Color(0.52f, 0.44f, 0.32f, 0.75f));
+        // 底部版本号（读工程设置，不再手写死）
+        var version = TextLabel($"v{ProjectSettings.GetSetting("application/config/version", "0.0.0").AsString()}", 16, new Color(0.52f, 0.44f, 0.32f, 0.75f));
         version.AnchorRight = 1;
         version.AnchorTop = 1;
         version.AnchorBottom = 1;
@@ -548,6 +641,14 @@ public partial class UiLayer : CanvasLayer
         version.OffsetBottom = -10;
         version.HorizontalAlignment = HorizontalAlignment.Center;
         _menu.AddChild(version);
+
+        // 右上角语言选择：点开列出 15 种语言
+        _langBtn = SquareButton("EN", 26, UiKit.BtnCream, UiKit.BtnCreamPress);
+        _langBtn.Position = new Vector2(596, 30);
+        _langBtn.Size = new Vector2(96, 58);
+        _langBtn.PivotOffset = new Vector2(48, 29);
+        Wire(_langBtn, OpenLangPanel);
+        _menu.AddChild(_langBtn);
     }
 
     /// <summary>首次点「开始游戏」：先展示减肥宣言，确认后再真正开局。</summary>
@@ -589,23 +690,96 @@ public partial class UiLayer : CanvasLayer
         line1.Size = new Vector2(500, 52);
         line1.HorizontalAlignment = HorizontalAlignment.Center;
         _introBox.AddChild(line1);
+        _introLine1 = line1;
 
         var line2 = TextLabel("不要再贪吃了哦", 27, Palette.SubText);
         line2.Position = new Vector2(0, 152);
         line2.Size = new Vector2(500, 44);
         line2.HorizontalAlignment = HorizontalAlignment.Center;
         _introBox.AddChild(line2);
+        _introLine2 = line2;
 
-        var go = BarButton("出发", 34, 90, 280, 320, 88);
+        var go = BarButton("出发", 34, 168, 276, 320, 88);
         Wire(go, () =>
         {
             _introPanel.Visible = false;
             Game.StartWithTransition(_pendingDiff);
         });
         _introBox.AddChild(go);
+        _goBtn = go;
     }
 
-    private void ShowIntro()
+    // ———————————————— 语言选择面板 ————————————————
+
+    private void BuildLangPanel()
+    {
+        _langPanel = new Control { MouseFilter = Control.MouseFilterEnum.Stop };
+        _langPanel.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
+        _langPanel.Visible = false;
+        _root.AddChild(_langPanel);
+
+        var dim = new ColorRect { Color = new Color(0.3f, 0.22f, 0.12f, 0.55f) };
+        dim.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
+        _langPanel.AddChild(dim);
+
+        var box = new Panel { Position = new Vector2(56, 150), Size = new Vector2(608, 980) };
+        box.AddThemeStyleboxOverride("panel", UiKit.WoodPanel(12));
+        _langPanel.AddChild(box);
+
+        var title = TextLabel("语言", 40, Palette.Text);
+        title.Position = new Vector2(0, 24);
+        title.Size = new Vector2(608, 58);
+        title.HorizontalAlignment = HorizontalAlignment.Center;
+        box.AddChild(title);
+
+        _langMarks = new TextureRect[Loc.Count];
+        for (int i = 0; i < Loc.Count; i++)
+        {
+            int idx = i;
+            int col = i % 2, row = i / 2;
+            var b = SquareButton(Loc.NativeName((Loc.Id)i), 24, UiKit.BtnCream, UiKit.BtnCreamPress);
+            b.Position = new Vector2(16 + col * 292, 96 + row * 92);
+            b.Size = new Vector2(276, 78);
+            b.PivotOffset = new Vector2(138, 39);
+            Wire(b, () =>
+            {
+                Loc.Set((Loc.Id)idx);
+                CloseLangPanel();
+            });
+            FitFont(b, 236f, 24);            // 长语言名（Português (Brasil) 等）自动收字号
+            var mark = Sprite(UiKit.Check, 240, 8, 28);
+            mark.Visible = false;
+            b.AddChild(mark);
+            _langMarks[i] = mark;
+            box.AddChild(b);
+        }
+
+        var close = BarButton("关闭", 26, 204, 858, 200, 74);
+        Wire(close, CloseLangPanel);
+        box.AddChild(close);
+
+        RefreshLangMarks();
+    }
+
+    private void OpenLangPanel()
+    {
+        RefreshLangMarks();
+        _langPanel.Visible = true;
+    }
+
+    /// <summary>供调试参数调用（截图验收语言面板）。</summary>
+    public void OpenLanguagePanel() => OpenLangPanel();
+
+    private void CloseLangPanel() => _langPanel.Visible = false;
+
+    private void RefreshLangMarks()
+    {
+        if (_langMarks == null) return;
+        for (int i = 0; i < _langMarks.Length; i++)
+            if (_langMarks[i] != null) _langMarks[i].Visible = (Loc.Id)i == Loc.Current;
+    }
+
+    public void ShowIntro()
     {
         _introPanel.Visible = true;
         _introBox.PivotOffset = _introBox.Size / 2f;
@@ -753,12 +927,13 @@ public partial class UiLayer : CanvasLayer
         panel.AddThemeStyleboxOverride("panel", UiKit.WoodPanel(12));
         _pausePanel.AddChild(panel);
 
-        panel.AddChild(Sprite(UiKit.Zzz, 130, 52, 40));
+        panel.AddChild(Sprite(UiKit.Zzz, 52, 44, 40));
         var title = TextLabel("暂停中", 48, Palette.Text);
         title.Position = new Vector2(0, 42);
         title.Size = new Vector2(480, 70);
         title.HorizontalAlignment = HorizontalAlignment.Center;
         panel.AddChild(title);
+        _pauseTitle = title;
 
         var resume = BarButton("继续游戏", 30, 60, 150, 360, 84);
         Wire(resume, () => Game.TogglePause());
@@ -866,7 +1041,7 @@ public partial class UiLayer : CanvasLayer
     public void ShowOver(bool win, string body, bool newRecord)
     {
         _overFace.Texture = win ? UiKit.FaceLove : UiKit.FaceCry;
-        _overTitle.Text = win ? "减肥成功！" : "减肥失败…";
+        _overTitle.Text = Loc.T(win ? "减肥成功！" : "减肥失败…");
         _overTitle.AddThemeColorOverride("font_color", win ? Palette.LeafDark : Palette.Danger);
         _overBadge.Visible = newRecord;
         _overBody.Text = body;
@@ -909,7 +1084,7 @@ public partial class UiLayer : CanvasLayer
         int winLen = Game.Diff.WinLength;
 
         string title = len >= 15 ? "肥胖" : len >= 11 ? "微胖" : len >= 8 ? "正常" : "苗条";
-        _weightLabel.Text = $"体重 {len} 节 · {title}";
+        _weightLabel.Text = Loc.F("体重 {0} 节 · {1}", len, Loc.T(title));
 
         // 液面高度 = 体重占比（越胖越满，减肥就是让液位下降）
         float k = Mathf.Clamp((float)(len - winLen) / (Game.Diff.StartLength - winLen), 0f, 1f);
@@ -919,7 +1094,7 @@ public partial class UiLayer : CanvasLayer
 
         bool ready = Game.CanSpit;
         _spitBtn.Modulate = ready ? Colors.White : new Color(1, 1, 1, 0.5f);
-        _spitState.Text = ready ? "就绪 · 每步一次" : "本步已吐过";
+        _spitState.Text = ready ? Loc.T("就绪 · 每步一次") : Loc.T("本步已吐过");
         _spitState.AddThemeColorOverride("font_color", ready ? Palette.LeafDark : Palette.InkSoft);
     }
 

@@ -1,0 +1,35 @@
+<p><strong>A reverse Snake game.</strong> The snake starts fat &mdash; your job is to make it <strong>shorter</strong>, not longer. Every apple you eat makes you heavier and slower, so you have to vomit the fat out behind you and let it land as a permanent wall.</p>
+
+<h2>How to play</h2>
+<ul>
+<li>You start fat and pink. The length you need to reach is shown at the top of the screen.</li>
+<li><strong>Swipe</strong> on the board to steer. Hitting a wall, your own body, or a block of fat ends the run.</li>
+<li>Tap <strong>VOMIT</strong> to throw one segment of fat ahead of you &mdash; it lands and becomes a wall you can never cross again, so pick the spot before you use it.</li>
+<li>Shrink down to the target length to clear the round.</li>
+</ul>
+
+<h2>The twist</h2>
+<ul>
+<li>Eating an apple adds weight: the snake grows longer, slower, and turns pink</li>
+<li>Eat 5&times; your starting weight and you burst</li>
+<li>Past 2&times; weight the screen shakes, reddens, and your heart starts pounding</li>
+<li>You win by reaching the target length &mdash; not by scoring points</li>
+</ul>
+
+<h2>Features</h2>
+<ul>
+<li>3 difficulties &mdash; Easy / Standard / Hell, each with a different starting weight and apple density</li>
+<li>7 achievements that pop in from the top of the screen</li>
+<li>Built for phones: portrait, one-thumb play</li>
+</ul>
+
+<h2>Notes</h2>
+<ul>
+<li><strong>Android only</strong> (arm64), ~103 MB &mdash; that is the .NET runtime, not the assets</li>
+<li>Mobile only for now; no desktop or browser build yet</li>
+<li>15 languages &mdash; switch any time from the button on the main menu</li>
+<li>Follows your system language on first launch</li>
+</ul>
+
+<h2>Feedback</h2>
+<p>Found a bug or a balance issue? Leave a comment &mdash; I read everything.</p>

@@ -465,10 +465,10 @@ public partial class Main : Node2D
 
         string reason = cause switch
         {
-            DeathCause.Wall => "撞上了围墙",
-            DeathCause.Obstacle => "被自己吐出的肥肉绊倒了。",
-            DeathCause.SelfBite => "咬到了自己的尾巴。",
-            DeathCause.Explode => "你是饕餮吗",
+            DeathCause.Wall => Loc.T("撞上了围墙"),
+            DeathCause.Obstacle => Loc.T("被自己吐出的肥肉绊倒了。"),
+            DeathCause.SelfBite => Loc.T("咬到了自己的尾巴。"),
+            DeathCause.Explode => Loc.T("你是饕餮吗"),
             _ => "",
         };
         Ui.ShowOver(false, reason, false);
@@ -491,7 +491,15 @@ public partial class Main : Node2D
         GD.Print($"[debug] user args: [{string.Join(", ", args)}]");
         foreach (string a in args)
         {
-            if (a == "skipmenu") StartGame(Diff);
+            if (a.StartsWith("lang="))
+            {
+                // 强制指定语言（截图验收用），例：-- lang=ja
+                string code = a.Substring(5);
+                int langIdx = System.Array.FindIndex(Loc.All, x => x.Code == code);
+                if (langIdx >= 0) Loc.Set((Loc.Id)langIdx);
+            }
+            else if (a == "langpanel") Ui.OpenLanguagePanel();
+            else if (a == "skipmenu") StartGame(Diff);
             else if (a == "state=win")
             {
                 StartGame(Diff);

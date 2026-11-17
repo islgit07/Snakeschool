@@ -1,0 +1,32 @@
+第三方子集字体说明
+====================
+
+本目录下带 _subset 的文件都是从开源字体裁剪而来，只保留游戏界面实际用到的字符
+（每个几十 KB，完整字库动辄十几 MB）。改动界面文案后必须重跑：
+
+    python tools/make_font_subsets.py
+
+否则新出现的字符会缺字形、掉到系统字体上（字重会明显偏细）。
+
+  文件                       来源                          用途
+  ----------------------------------------------------------------------
+  huninn_tc_subset.ttf       jf open 粉圓 (Huninn)         繁体中文主字体
+  noto_tc_subset.otf         Noto Sans TC Bold             繁体备份（粉圆缺失时）
+  noto_jp_subset.otf         Noto Sans JP Bold             日文 / 繁体第二兜底
+  noto_kr_subset.otf         Noto Sans KR Bold             韩文
+  noto_th_subset.ttf         Noto Sans Thai Bold           泰文
+
+为什么繁体要单独一套：
+  主字体 wenyi_hei.ttf（字由文艺黑）是简体字库，繁体用到的 135 个字里缺 44 个
+  （來/單/圍/戲/戶/敗/暫/條/樂/標/決/減/準/牆/獄/發/節/紀/絆/緒/繼/續/腳/裝/語/貪/
+   輕/遊/過/選/銜/錄/鎖/鐘/閉/開/關/頭/體/鬆/龍…），缺的字只能落到系统细体，
+  一句话里出现两种字重，观感很差。所以繁体整门语言改用圆体「粉圆」，
+  再用 FontVariation 加粗 0.6 贴近主字体的笔画厚度。
+
+来源：
+  https://github.com/notofonts/noto-cjk
+  https://github.com/notofonts/noto-fonts
+  https://github.com/google/fonts/tree/main/ofl/huninn
+
+许可：全部为 SIL Open Font License 1.1，全文见同目录 OFL.txt。
+      允许嵌入、修改与再分发（子集化属于修改），需保留本声明与许可文本。
